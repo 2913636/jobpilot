@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { WebVitalsReporter } from "@/components/WebVitals";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <AntdRegistry>
-          <ErrorBoundary>{children}</ErrorBoundary>
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
+          <WebVitalsReporter />
         </AntdRegistry>
       </body>
     </html>

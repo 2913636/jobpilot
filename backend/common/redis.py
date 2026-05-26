@@ -16,7 +16,14 @@ async def get_redis():
         return _redis
     try:
         import redis.asyncio as aioredis
-        _redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+        _redis = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            max_connections=50,
+            socket_keepalive=True,
+            socket_connect_timeout=5,
+            retry_on_timeout=True,
+        )
         await _redis.ping()
     except Exception:
         _redis = False
