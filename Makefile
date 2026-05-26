@@ -1,8 +1,34 @@
-.PHONY: up down build logs restart clean setup dev
+.PHONY: up down build logs restart clean setup dev test demo lint
 
 # Start all services
 up:
 	docker-compose up -d
+
+# Start with seed data
+demo:
+	docker-compose up -d
+	sleep 15
+	python scripts/seed.py
+	@echo ""
+	@echo "=== JobPilot Demo Ready ==="
+	@echo "Frontend: http://localhost:3000"
+	@echo "API Docs: http://localhost:8001/docs"
+	@echo "Jaeger:   http://localhost:16686"
+	@echo ""
+
+# Run all tests
+test:
+	cd backend/services/user_service && pytest tests/ -v
+	cd backend/services/resume_service && pytest tests/ -v
+	cd backend/services/match_service && pytest tests/ -v
+	cd backend/services/apply_service && pytest tests/ -v
+	cd backend/services/interview_service && pytest tests/ -v
+	cd backend/services/agent_service && pytest tests/ -v
+
+# Lint all code
+lint:
+	cd backend && black --check . && isort --check-only . && ruff check .
+	cd frontend && npx prettier --check "src/**/*.{ts,tsx,css}" && npx tsc --noEmit
 
 # Stop all services
 down:
