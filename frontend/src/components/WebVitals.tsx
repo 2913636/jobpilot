@@ -2,6 +2,11 @@
 
 import { useEffect } from "react";
 
+interface LayoutShift extends PerformanceEntry {
+  hadRecentInput: boolean;
+  value: number;
+}
+
 interface Metric {
   name: string;
   value: number;
@@ -57,7 +62,8 @@ export function WebVitalsReporter() {
       new PerformanceObserver((list) => {
         let score = 0;
         for (const entry of list.getEntries()) {
-          if (!entry.hadRecentInput) score += entry.value;
+          const ls = entry as LayoutShift;
+          if (!ls.hadRecentInput) score += ls.value;
         }
         CLS = score;
         reportWebVitals({
