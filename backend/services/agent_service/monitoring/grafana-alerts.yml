@@ -1,0 +1,69 @@
+# Grafana 告警规则配置
+# 导入方式：Grafana → Alerting → Import
+
+groups:
+  - name: jobpilot-service-health
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: service_health_{service} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "服务 {{ $labels.service }} 不可用"
+          description: "服务 {{ $labels.service }} 健康检查失败超过 2 分钟"
+
+      - alert: HighLatency
+        expr: service_latency_ms_{service} > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "服务 {{ $labels.service }} 响应延迟过高"
+          description: "当前延迟: {{ $value }}ms（阈值 5000ms）"
+
+      - alert: HighErrorRate
+        expr: rate(http_responses_total{status="500"}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP 5xx 错误率超过 5%"
+          description: "当前错误率: {{ $value | humanizePercentage }}"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: rate(http_requests_in_flight[1m]) > 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "数据库连接池可能耗尽"
+          description: "当前并发请求数: {{ $value }}"
+
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_lag > 10000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka 消费者积压超过 10000 条"
+          description: "主题 user-events 消费延迟: {{ $value }} 条"
+
+      - alert: TemporalWorkflowFailureRate
+        expr: rate(temporal_workflow_failed_total[15m]) / rate(temporal_workflow_total[15m]) > 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Temporal 工作流失败率超过 10%"
+          description: "过去 15 分钟工作流失败率: {{ $value | humanizePercentage }}"
+
+      - alert: ModelTrainingStuck
+        expr: model_training_duration_seconds > 3600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "模型训练耗时超过 1 小时"
+          description: "当前训练时长: {{ $value }} 秒"

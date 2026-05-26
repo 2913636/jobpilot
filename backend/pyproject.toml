@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jobpilot-backend"
+version = "1.0.0"
+description = "JobPilot backend microservices"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "sqlalchemy[asyncio]>=2.0.29",
+    "asyncpg>=0.29.0",
+    "pydantic[email]>=2.0.0",
+    "elasticsearch[async]>=8.14.0",
+    "pymilvus>=2.4.0",
+    "neo4j>=5.21.0",
+    "pyjwt>=2.8.0",
+    "python-multipart>=0.0.9",
+    "nats-py>=0.0.5",
+    "livekit-api>=0.7.0",
+    "temporalio>=1.6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["common*"]
