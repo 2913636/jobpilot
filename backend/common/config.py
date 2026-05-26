@@ -1,9 +1,12 @@
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
 class Settings:
+    # --- Environment ---
+    app_env: str = os.getenv("APP_ENV", "dev")
     # --- PostgreSQL ---
     postgres_user: str = os.getenv("POSTGRES_USER", "jobpilot")
     postgres_password: str = os.getenv("POSTGRES_PASSWORD", "jobpilot_secret")
@@ -64,4 +67,18 @@ class Settings:
     service_port: int = int(os.getenv("SERVICE_PORT", "8000"))
 
 
+def load_env_config() -> dict:
+    env = os.getenv("APP_ENV", "dev")
+    config_dir = Path(__file__).resolve().parent.parent.parent / "config"
+    config_file = config_dir / f"{env}.yaml"
+    if not config_file.exists():
+        return {}
+    try:
+        import yaml
+        with open(config_file) as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
 settings = Settings()
+env_config = load_env_config()

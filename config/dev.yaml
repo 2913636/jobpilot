@@ -1,0 +1,31 @@
+# Development Environment Configuration
+extends: schema.yaml
+
+logging:
+  level: DEBUG
+  json_format: true
+
+cache:
+  default_ttl: 60
+  null_ttl: 10
+  skill_graph_ttl: 300
+  hot_jobs_ttl: 30
+  user_profile_ttl: 300
+
+database:
+  pool_size: 5
+  max_overflow: 10
+  echo_sql: true
+
+rate_limit:
+  window: 10
+  max_requests: 1000
+
+tracing:
+  enabled: false
+  sampling_rate: 1.0
+
+services:
+  llm_timeout: 60
+  ocr_timeout: 120
+  crawl_timeout: 600

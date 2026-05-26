@@ -1,0 +1,31 @@
+# Production Environment Configuration
+extends: schema.yaml
+
+logging:
+  level: WARNING
+  json_format: true
+
+cache:
+  default_ttl: 300
+  null_ttl: 30
+  skill_graph_ttl: 86400
+  hot_jobs_ttl: 180
+  user_profile_ttl: 3600
+
+database:
+  pool_size: 30
+  max_overflow: 60
+  echo_sql: false
+
+rate_limit:
+  window: 60
+  max_requests: 100
+
+tracing:
+  enabled: true
+  sampling_rate: 0.1
+
+services:
+  llm_timeout: 20
+  ocr_timeout: 45
+  crawl_timeout: 180
