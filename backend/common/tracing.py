@@ -16,12 +16,16 @@ import os
 def setup_tracing(service_name: str) -> None:
     """初始化 OpenTelemetry 自动 instrumentation。
 
+    支持两种 exporter（通过环境变量切换）：
+      OTEL_EXPORTER_JAEGER_ENDPOINT → Jaeger Thrift (http://jaeger:14268/api/traces)
+      OTEL_EXPORTER_OTLP_ENDPOINT    → OTLP gRPC  (http://jaeger:4317)
+
     Traefik 生成根 span → 各微服务传播 W3C trace context → Jaeger 存储。
-    如果 OTEL 未配置（本地开发），静默跳过不影响业务。
     """
     otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-    if not otel_endpoint and not os.getenv("OTEL_SDK_DISABLED"):
-        # 开发环境：不启用 OTel，减少启动开销
+    jaeger_endpoint = os.getenv("OTEL_EXPORTER_JAEGER_ENDPOINT", "")
+
+    if not otel_endpoint and not jaeger_endpoint and not os.getenv("OTEL_SDK_DISABLED"):
         return
 
     try:

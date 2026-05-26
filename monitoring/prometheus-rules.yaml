@@ -1,0 +1,107 @@
+# JobPilot PrometheusRule — 7+ 告警规则
+# 导入: kubectl apply -f monitoring/prometheus-rules.yaml
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: jobpilot-alerts
+  namespace: jobpilot
+  labels:
+    app.kubernetes.io/part-of: jobpilot
+spec:
+  groups:
+  - name: jobpilot-service-health
+    interval: 30s
+    rules:
+    # 1. 服务宕机
+    - alert: ServiceDown
+      expr: service_health_{service} == 0
+      for: 2m
+      labels:
+        severity: critical
+        category: availability
+      annotations:
+        summary: "服务 {{ $labels.service }} 不可用"
+        description: "健康检查连续失败超过2分钟"
+
+    # 2. 高错误率
+    - alert: HighErrorRate
+      expr: |
+        rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+      for: 3m
+      labels:
+        severity: critical
+        category: reliability
+      annotations:
+        summary: "5xx 错误率超过 5%"
+        description: "当前: {{ $value | humanizePercentage }}"
+
+    # 3. p95 延迟过高
+    - alert: HighLatency
+      expr: histogram_quantile(0.95, rate(http_request_duration_ms_bucket[5m])) > 2000
+      for: 5m
+      labels:
+        severity: warning
+        category: performance
+      annotations:
+        summary: "p95 延迟超过 2s"
+        description: "端点 {{ $labels.path }} p95延迟: {{ $value }}ms"
+
+    # 4. 缓存命中率过低
+    - alert: LowCacheHitRate
+      expr: |
+        rate(cache_hits_total[5m]) / (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m])) < 0.5
+      for: 10m
+      labels:
+        severity: warning
+        category: performance
+      annotations:
+        summary: "缓存命中率低于 50%"
+        description: "当前: {{ $value | humanizePercentage }}"
+
+    # 5. 磁盘使用率过高
+    - alert: HighDiskUsage
+      expr: |
+        (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) > 0.80
+      for: 5m
+      labels:
+        severity: warning
+        category: capacity
+      annotations:
+        summary: "磁盘使用率超过 80%"
+        description: "节点 {{ $labels.instance }} 磁盘: {{ $value | humanizePercentage }}"
+
+    # 6. 内存使用率过高
+    - alert: HighMemoryUsage
+      expr: |
+        (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.90
+      for: 5m
+      labels:
+        severity: critical
+        category: capacity
+      annotations:
+        summary: "内存使用率超过 90%"
+        description: "节点 {{ $labels.instance }} 内存: {{ $value | humanizePercentage }}"
+
+    # 7. 简历生成失败率过高
+    - alert: HighResumeGenerationFailureRate
+      expr: |
+        rate(resumes_generated_failed_total[10m]) / rate(resumes_generated_total[10m]) > 0.10
+      for: 5m
+      labels:
+        severity: critical
+        category: business
+      annotations:
+        summary: "简历生成失败率超过 10%"
+        description: "可能是 LLM 服务异常, 当前失败率: {{ $value | humanizePercentage }}"
+
+    # 8. 面试房间创建失败
+    - alert: InterviewRoomCreationFailure
+      expr: rate(interviews_started_failed_total[5m]) > 1
+      for: 3m
+      labels:
+        severity: warning
+        category: business
+      annotations:
+        summary: "面试房间创建持续失败"
+        description: "LiveKit 服务可能需要检查"
