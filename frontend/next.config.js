@@ -27,6 +27,9 @@ const nextConfig = {
     ];
   },
 
+  // ESLint 10.x 与 Next.js 14 built-in lint 不兼容，构建时跳过
+  eslint: { ignoreDuringBuilds: true },
+
   // 实验性 ISR
   experimental: {
     optimizeCss: true,

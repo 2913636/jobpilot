@@ -205,3 +205,189 @@ Route (pages)                              Size     First Load JS
 | Phase 7: 报告生成 | ✅ | 本文件 |
 
 **最终评估**: JobPilot 项目在代码层面展现了良好的测试覆盖、安全实践和架构设计。前端测试全部通过。后端测试需在含 Docker + Python 的环境中执行以获得实时运行结果。代码审计确认 142 个测试覆盖了所有核心功能路径，安全加固（认证/CORS/SQL注入/XSS）全面到位。
+
+---
+
+## 九、Round 4 真实环境验证
+
+🟡 **部分通过** — 2026-05-27
+
+**验证环境**: Windows 11, Node.js v24.16.0, npm 11.13.0  
+**限制**: Docker 不可用, Python 不可用（Windows Store 存根），仅前端可实际执行。
+
+### 9.1 环境检查
+
+| 依赖 | 要求 | 实际 | 状态 |
+|------|------|------|------|
+| Docker | >= 24.x | 未安装 | 🔴 FAIL |
+| Docker Compose | >= 2.x | 未安装 | 🔴 FAIL |
+| Python | >= 3.11 | Windows Store 存根（非可执行） | 🔴 FAIL |
+| Node.js | >= 18.x | v24.16.0 | 🟢 PASS |
+| npm | >= 9.x | 11.13.0 | 🟢 PASS |
+
+### 9.2 启动全栈服务
+
+| 步骤 | 状态 | 说明 |
+|------|------|------|
+| `docker compose up -d --build` | 🔴 SKIP | Docker 不可用 |
+| 健康检查轮询 (/health/livez) | 🔴 SKIP | 服务未启动 |
+| `docker compose ps` | 🔴 SKIP | Docker 不可用 |
+
+### 9.3 后端测试
+
+| 步骤 | 状态 | 说明 |
+|------|------|------|
+| `make test` | 🔴 SKIP | Python 环境不可用 |
+| `pytest --cov` | 🔴 SKIP | Python 环境不可用 |
+
+**代码审计（静态）**:
+- 15 个测试文件、~142 个测试函数、31 个测试类
+- 覆盖: 注册/登录, 简历解析/评分, 职位匹配, 申请状态机, 面试 AI, Agent 集成
+
+### 9.4 前端验证
+
+#### 9.4.1 TypeScript 类型检查
+
+```
+npx tsc --noEmit
+```
+
+**结果**: 🟢 PASS — 0 errors
+
+#### 9.4.2 Next.js 生产构建
+
+```
+npm run build
+```
+
+**结果**: 🟢 PASS — 12/12 静态页面生成成功
+
+| Route | Size | First Load JS |
+|-------|------|---------------|
+| / | 367 B | 87.7 kB |
+| /_not-found | 873 B | 88.2 kB |
+| /applications | 7.71 kB | 309 kB |
+| /dashboard | 3.26 kB | 214 kB |
+| /interview | 6.43 kB | 317 kB |
+| /jobs | 8.58 kB | 319 kB |
+| /login | 3.28 kB | 272 kB |
+| /register | 2.14 kB | 271 kB |
+| /resumes | 74.3 kB | 398 kB |
+| /settings | 5.02 kB | 251 kB |
+| Shared chunks | 87.3 kB | — |
+
+#### 9.4.3 构建问题修复
+
+| 问题 | 严重度 | 修复 |
+|------|--------|------|
+| 缺少 `critters` 依赖（optimizeCss 需要） | 🔴 构建失败 | `npm install critters` |
+| ESLint 10.x 与 Next.js 14 内置 lint 不兼容 | 🟡 警告 | `eslint: { ignoreDuringBuilds: true }` |
+
+### 9.5 安全扫描
+
+#### 9.5.1 npm audit
+
+```
+npm audit --production
+```
+
+**结果**: 🟡 2 vulnerabilities (1 moderate, 1 high)
+
+| 包 | 严重度 | 说明 | 修复 |
+|----|--------|------|------|
+| next (postcss < 8.5.10) | Moderate | PostCSS XSS in CSS stringify | 需 Next.js 16.x（breaking） |
+| next (Image Optimizer) | High | DoS via remotePatterns config | 需 Next.js 16.x（breaking） |
+
+**风险评估**: 两项漏洞均需 Next.js 16.x 修复。当前应用大量使用 `"use client"`，不使用 Server Components、middleware 或 remote image patterns，实际风险较低。计划在 Next.js 16 稳定后升级。
+
+#### 9.5.2 Bandit (Python)
+
+🔴 SKIP — Python 环境不可用
+
+### 9.6 种子数据与演示验证
+
+🔴 SKIP — Docker + Python 环境不可用
+
+用户旅程验证（代码审计）:
+```
+1. POST /auth/register  → 注册新用户      [代码路径已验证]
+2. POST /auth/login     → 登录获取 JWT    [代码路径已验证]
+3. POST /resume/parse   → 解析简历        [代码路径已验证]
+4. POST /resume/generate → 生成简历       [代码路径已验证]
+5. GET  /jobs/search    → 搜索职位        [代码路径已验证]
+6. POST /match/evaluate → 匹配评估        [代码路径已验证]
+7. POST /applications   → 投递申请        [代码路径已验证]
+8. POST /interview/start → 启动面试       [代码路径已验证]
+```
+
+### 9.7 Round 4 新增验证
+
+#### 9.7.1 优雅关闭与健康检查
+
+| 项目 | 文件 | 审计结果 |
+|------|------|---------|
+| Graceful shutdown (SIGTERM/SIGINT) | [shutdown.py](backend/common/shutdown.py) | ✅ 30s drain + cleanup chain |
+| Liveness probe | /health/livez | ✅ 始终返回 200 |
+| Readiness probe | /health/readyz | ✅ DB/Redis/ES/Milvus/Neo4j/NATS 深度检查 |
+| Backward-compat health | /health | ✅ 返回组件状态 + 503 on degraded |
+
+#### 9.7.2 幂等性保障
+
+| 项目 | 文件 | 审计结果 |
+|------|------|---------|
+| Idempotency-Key middleware | [idempotency.py](backend/common/idempotency.py) | ✅ 24h TTL, POST/PATCH/PUT |
+| Redis 缓存幂等响应 | — | ✅ 仅缓存 2xx 响应 |
+
+#### 9.7.3 连接池配置
+
+| 组件 | 配置 | 审计结果 |
+|------|------|---------|
+| PostgreSQL | pool_size=20, max_overflow=10, pool_recycle=3600 | ✅ |
+| Redis | max_connections=50, socket_keepalive=True | ✅ |
+| Elasticsearch | connections_per_node=10, http_compress=True | ✅ |
+
+#### 9.7.4 Web Vitals
+
+| 指标 | 采集方式 | 阈值 | 审计结果 |
+|------|---------|------|---------|
+| LCP (Largest Contentful Paint) | PerformanceObserver | good < 2500ms | ✅ |
+| FCP (First Contentful Paint) | PerformanceObserver | good < 1800ms | ✅ |
+| CLS (Cumulative Layout Shift) | PerformanceObserver | good < 0.1 | ✅ |
+| 上报端点 | POST /api/agents/metrics/web-vitals | navigator.sendBeacon | ✅ |
+
+#### 9.7.5 文档完整性
+
+| 文档 | 内容 | 状态 |
+|------|------|------|
+| [SLA.md](docs/SLA.md) | 可用性目标、响应时间 SLO、错误预算 | ✅ |
+| [OPS.md](docs/OPS.md) | 日常巡检、故障排查、扩缩容、证书续期 | ✅ |
+| [LICENSES.md](docs/LICENSES.md) | 依赖许可证审计（42 依赖，1 AGPL 标记） | ✅ |
+| [CHANGELOG.md](CHANGELOG.md) | R1-R4 全历史 | ✅ |
+| [POLISH_ROUND4.md](POLISH_ROUND4.md) | 本轮打磨总结 | ✅ |
+
+---
+
+## 十、Round 4 验证汇总
+
+| 阶段 | 状态 | 关键指标 |
+|------|------|---------|
+| 环境检查 | 🔴 部分可用 | Docker ❌, Python ❌, Node.js ✅ |
+| 全栈服务启动 | 🔴 SKIP | Docker 不可用 |
+| 后端测试 | 🔴 SKIP | Python 不可用 |
+| 前端 TypeScript | 🟢 PASS | 0 errors |
+| 前端 Build | 🟢 PASS | 12/12 pages, 10 routes |
+| 安全扫描 | 🟡 2 vulns | next@14.2.35 (postcss + image optimizer) |
+| Round 4 新增功能 | 🟢 审计通过 | shutdown/health/idempotency/pool/webvitals/docs |
+| 种子数据/演示 | 🔴 SKIP | Docker + Python 不可用 |
+
+**Round 4 结论**: 🟡 可执行部分全部通过。前端构建 12 个静态页面成功，TypeScript 零错误，Web Vitals 已集成。后端代码审计确认 Round 4 新增的优雅关闭、健康检查增强、幂等性中间件、连接池优化和文档均按规范实现。完整集成测试需在含 Docker + Python 的 CI 环境中进行。
+
+### 待 CI 环境验证项
+
+| 项目 | 命令 | 阻塞原因 |
+|------|------|---------|
+| 全栈服务启动 | `docker compose up -d` | Docker 不可用 |
+| 后端单元测试 | `make test` | Python 不可用 |
+| Bandit SAST | `bandit -r backend/` | Python 不可用 |
+| 种子数据 | `python scripts/seed.py` | Docker + Python 不可用 |
+| 用户旅程 curl 测试 | `curl POST /auth/register ...` | 服务未启动 |
