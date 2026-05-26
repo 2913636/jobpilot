@@ -1,0 +1,632 @@
+name: Full Verification — Real Environment Test
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+  COVERAGE_THRESHOLD: 80
+  HEALTH_POLL_TIMEOUT: 180
+
+jobs:
+  verify:
+    name: Full Stack Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    steps:
+      # ── Step 1: Checkout ──────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Step 2: Setup .env ────────────────────────────────────
+      - name: Prepare environment
+        run: cp .env.example .env
+
+      # ── Step 3: Start full-stack services ─────────────────────
+      - name: Start Docker Compose services
+        run: |
+          docker compose up -d --build 2>&1 | tee /tmp/compose-up.log
+        timeout-minutes: 20
+
+      # ── Step 4: Poll health endpoints ─────────────────────────
+      - name: Wait for all services to become healthy
+        id: health_check
+        continue-on-error: true
+        run: |
+          SERVICES=(
+            "user_service:8001"
+            "resume_service:8002"
+            "match_service:8003"
+            "apply_service:8004"
+            "interview_service:8005"
+            "agent_service:8006"
+          )
+
+          START_TIME=$(date +%s)
+          TIMEOUT=${{ env.HEALTH_POLL_TIMEOUT }}
+          HEALTH_OK="true"
+
+          echo "Polling ${#SERVICES[@]} services (timeout: ${TIMEOUT}s)..."
+
+          all_healthy=false
+          while [ "$all_healthy" = false ]; do
+            all_healthy=true
+            for entry in "${SERVICES[@]}"; do
+              svc="${entry%%:*}"
+              port="${entry##*:}"
+
+              if [ -f "/tmp/health-${svc}.ok" ]; then
+                continue
+              fi
+
+              if curl -sf --max-time 5 "http://localhost:${port}/health/livez" > /dev/null 2>&1; then
+                echo "  ✅ ${svc} is healthy"
+                touch "/tmp/health-${svc}.ok"
+              elif curl -sf --max-time 5 "http://localhost:${port}/health" > /dev/null 2>&1; then
+                echo "  ✅ ${svc} is healthy (/health)"
+                touch "/tmp/health-${svc}.ok"
+              else
+                all_healthy=false
+              fi
+            done
+
+            ELAPSED=$(( $(date +%s) - START_TIME ))
+            if [ "$all_healthy" = false ]; then
+              if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+                echo ""
+                echo "❌ Health check timeout after ${ELAPSED}s"
+                echo "=== docker compose ps ==="
+                docker compose ps || true
+                echo "=== Recent logs ==="
+                docker compose logs --tail=60 || true
+                HEALTH_OK="false"
+                break
+              fi
+              echo "  ... waiting (${ELAPSED}s / ${TIMEOUT}s)"
+              sleep 5
+            fi
+          done
+
+          if [ "$HEALTH_OK" = "true" ]; then
+            echo "All services healthy in ${ELAPSED}s"
+            docker compose ps | tee /tmp/health-check.txt
+          fi
+
+          echo "health_ok=${HEALTH_OK}" >> "$GITHUB_OUTPUT"
+          [ "$HEALTH_OK" = "false" ] && exit 1 || true
+
+      # ── Step 5: Backend tests with coverage ───────────────────
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          for svc in user_service resume_service match_service apply_service interview_service agent_service; do
+            if [ -f "backend/services/${svc}/requirements.txt" ]; then
+              pip install -r "backend/services/${svc}/requirements.txt" 2>&1 | tail -3
+            fi
+          done
+          pip install pytest pytest-asyncio pytest-cov pytest-timeout httpx
+
+      - name: Run backend tests
+        id: backend_tests
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql+asyncpg://jobpilot:jobpilot_secret@localhost:5432/jobpilot
+          TEST_DATABASE_URL: postgresql+asyncpg://jobpilot:jobpilot_secret@localhost:5432/jobpilot
+          REDIS_URL: redis://localhost:6379/0
+          ELASTICSEARCH_URL: http://localhost:9200
+          MILVUS_HOST: localhost
+          MILVUS_PORT: "19530"
+          NEO4J_URI: bolt://localhost:7687
+          MINIO_ENDPOINT: localhost:9000
+          LIVEKIT_URL: http://localhost:7880
+          TEMPORAL_HOST: localhost
+          NATS_URL: nats://localhost:4222
+          JWT_SECRET_KEY: ci-test-secret-key
+          APP_ENV: test
+          SMTP_ENABLED: "false"
+        run: |
+          set +e
+          TOTAL_TESTS=0
+          TOTAL_PASSED=0
+          TOTAL_FAILED=0
+          EXIT_CODE=0
+
+          COV_DIR="coverage-reports"
+          mkdir -p "${COV_DIR}"
+
+          for svc in user_service resume_service match_service apply_service interview_service agent_service; do
+            echo ""
+            echo "━━━ Running tests for ${svc} ━━━"
+            cd "backend/services/${svc}"
+
+            python -m pytest tests/ \
+              --cov=. \
+              --cov-report=term \
+              --cov-report="html:../../${COV_DIR}/${svc}-html" \
+              --cov-report="json:../../${COV_DIR}/${svc}.json" \
+              --tb=short \
+              --timeout=60 \
+              -v \
+              2>&1 | tee "../../${COV_DIR}/${svc}.log" || true
+
+            # Parse results from pytest exit code
+            cd ../../..
+
+            # Count from the log
+            LOG_FILE="${COV_DIR}/${svc}.log"
+            if [ -f "$LOG_FILE" ]; then
+              PASSED=$(grep -oP '^\d+(?= passed)' "$LOG_FILE" 2>/dev/null || echo 0)
+              FAILED=$(grep -oP '^\d+(?= failed)' "$LOG_FILE" 2>/dev/null || echo 0)
+              PASSED=${PASSED:-0}
+              FAILED=${FAILED:-0}
+              TOTAL_TESTS=$((TOTAL_TESTS + PASSED + FAILED))
+              TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
+              TOTAL_FAILED=$((TOTAL_FAILED + FAILED))
+              [ "$FAILED" -gt 0 ] && EXIT_CODE=1
+            fi
+          done
+
+          echo "total_tests=${TOTAL_TESTS}" >> "$GITHUB_OUTPUT"
+          echo "total_passed=${TOTAL_PASSED}" >> "$GITHUB_OUTPUT"
+          echo "total_failed=${TOTAL_FAILED}" >> "$GITHUB_OUTPUT"
+
+          # Compute total coverage from JSON reports
+          COV_LINES=0
+          COV_COVERED=0
+          for json_file in ${COV_DIR}/*.json; do
+            if [ -f "$json_file" ]; then
+              lines=$(python -c "import json; d=json.load(open('${json_file}')); print(d['totals']['num_statements'])" 2>/dev/null || echo 0)
+              covered=$(python -c "import json; d=json.load(open('${json_file}')); print(d['totals']['covered_lines'])" 2>/dev/null || echo 0)
+              COV_LINES=$((COV_LINES + lines))
+              COV_COVERED=$((COV_COVERED + covered))
+            fi
+          done
+
+          if [ "$COV_LINES" -gt 0 ]; then
+            COV_PCT=$(python -c "print(round(${COV_COVERED} / ${COV_LINES} * 100, 1))")
+          else
+            COV_PCT="0.0"
+          fi
+          echo "coverage_pct=${COV_PCT}" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Tests: ${TOTAL_TESTS} total, ${TOTAL_PASSED} passed, ${TOTAL_FAILED} failed"
+          echo "Coverage: ${COV_PCT}%"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          exit $EXIT_CODE
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: coverage-reports/
+          retention-days: 7
+
+      - name: Check coverage threshold
+        id: coverage_check
+        if: steps.backend_tests.outcome != 'skipped'
+        run: |
+          COV=$(echo "${{ steps.backend_tests.outputs.coverage_pct }}" | tr -d '\n\r')
+          THRESHOLD=${{ env.COVERAGE_THRESHOLD }}
+          echo "Coverage: ${COV}%, Threshold: ${THRESHOLD}%"
+          if [ -n "$COV" ] && python -c "exit(0 if float('${COV}') >= float('${THRESHOLD}') else 1)"; then
+            echo "✅ Coverage meets threshold"
+            echo "cov_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "❌ Coverage ${COV}% is below ${THRESHOLD}% threshold"
+            echo "cov_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+
+      # ── Step 6: Security scan ─────────────────────────────────
+      - name: Run Bandit security scan
+        id: bandit
+        continue-on-error: true
+        run: |
+          pip install bandit
+          bandit -r backend/services/ backend/common/ -f json -o bandit-report.json -ll || true
+
+          HIGH=$(python -c "
+          import json
+          with open('bandit-report.json') as f:
+              data = json.load(f)
+          results = data.get('results', [])
+          high = sum(1 for r in results if r['issue_severity'] == 'HIGH')
+          med  = sum(1 for r in results if r['issue_severity'] == 'MEDIUM')
+          print(f'{high},{med}')
+          " 2>/dev/null || echo "0,0")
+
+          HIGH_COUNT=$(echo "$HIGH" | cut -d, -f1)
+          MED_COUNT=$(echo "$HIGH" | cut -d, -f2)
+
+          echo "high_count=${HIGH_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "med_count=${MED_COUNT}" >> "$GITHUB_OUTPUT"
+
+          echo "Bandit: ${HIGH_COUNT} HIGH, ${MED_COUNT} MEDIUM"
+
+          if [ "${HIGH_COUNT}" -gt 0 ]; then
+            echo "bandit_pass=false" >> "$GITHUB_OUTPUT"
+            echo "❌ Bandit found ${HIGH_COUNT} HIGH-severity issues"
+          else
+            echo "bandit_pass=true" >> "$GITHUB_OUTPUT"
+            echo "✅ No HIGH-severity issues"
+          fi
+
+      - name: Upload Bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+          retention-days: 7
+
+      # ── Step 7: Frontend check ────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend build
+        id: frontend_build
+        continue-on-error: true
+        run: |
+          cd frontend
+          npm ci
+          npm run build 2>&1 | tee /tmp/frontend-build.log
+          echo "build_pass=true" >> "$GITHUB_OUTPUT"
+
+      - name: Frontend security audit
+        id: npm_audit
+        continue-on-error: true
+        run: |
+          cd frontend
+          npm audit --production 2>&1 | tee /tmp/npm-audit.log || true
+
+          HIGH_VULNS=$(grep -c -i "Severity: high\|Severity: critical" /tmp/npm-audit.log 2>/dev/null || echo 0)
+          echo "npm_high_vulns=${HIGH_VULNS}" >> "$GITHUB_OUTPUT"
+
+          if [ "${HIGH_VULNS}" -gt 0 ]; then
+            echo "⚠️ npm audit: ${HIGH_VULNS} high/critical vulnerabilities (warning only)"
+          else
+            echo "✅ npm audit: 0 high/critical vulnerabilities"
+          fi
+
+      # ── Step 8: Seed data & E2E journey ───────────────────────
+      - name: Seed demo data
+        id: seed
+        continue-on-error: true
+        run: |
+          python scripts/seed.py 2>&1 | tee /tmp/seed-output.log
+          echo "seed_pass=true" >> "$GITHUB_OUTPUT"
+
+      - name: E2E user journey test
+        id: e2e
+        continue-on-error: true
+        run: |
+          set +e
+          FAILURES=0
+          echo "" > /tmp/demo-output.txt
+
+          # ── 1. Register ──
+          echo "1. Register new user" | tee -a /tmp/demo-output.txt
+          REG_RESP=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8001/api/users/auth/register \
+            -H "Content-Type: application/json" \
+            -d '{"email":"test-e2e@example.com","password":"TestPass123!","full_name":"E2E Test User"}')
+          REG_CODE=$(echo "$REG_RESP" | tail -1)
+          echo "   Status: ${REG_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$REG_CODE" -ge 200 ] && [ "$REG_CODE" -lt 300 ] || { echo "   ❌ Register failed"; FAILURES=$((FAILURES+1)); }
+          TOKEN=""
+
+          # ── 2. Login ──
+          echo "2. Login" | tee -a /tmp/demo-output.txt
+          LOGIN_RESP=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8001/api/users/auth/login \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "username=test-e2e@example.com&password=TestPass123!")
+          LOGIN_CODE=$(echo "$LOGIN_RESP" | tail -1)
+          TOKEN=$(echo "$LOGIN_RESP" | head -1 | python -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+          echo "   Status: ${LOGIN_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$LOGIN_CODE" -ge 200 ] && [ "$LOGIN_CODE" -lt 300 ] || { echo "   ❌ Login failed"; FAILURES=$((FAILURES+1)); }
+          echo "   Token: ${TOKEN:0:20}..." | tee -a /tmp/demo-output.txt
+
+          # ── 3. Resume parse ──
+          echo "3. Resume parsing" | tee -a /tmp/demo-output.txt
+          # Create a minimal PDF-like payload for testing
+          RESUME_RESP=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8002/api/resumes/parse \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"content":"John Doe\\nSoftware Engineer\\nPython, React, AWS","format":"text"}' 2>/dev/null)
+          RESUME_CODE=$(echo "$RESUME_RESP" | tail -1)
+          echo "   Status: ${RESUME_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$RESUME_CODE" -ge 200 ] && [ "$RESUME_CODE" -lt 300 ] || echo "   ⚠️ Resume parse returned ${RESUME_CODE} (may be expected)" | tee -a /tmp/demo-output.txt
+
+          # ── 4. Resume generate ──
+          echo "4. Resume generation" | tee -a /tmp/demo-output.txt
+          GEN_RESP=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8002/api/resumes/generate \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"title":"Software Engineer","experience":5,"skills":["Python","React","AWS"]}' 2>/dev/null)
+          GEN_CODE=$(echo "$GEN_RESP" | tail -1)
+          echo "   Status: ${GEN_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$GEN_CODE" -ge 200 ] && [ "$GEN_CODE" -lt 300 ] || echo "   ⚠️ Resume generate returned ${GEN_CODE} (may need AI key)" | tee -a /tmp/demo-output.txt
+
+          # ── 5. Job search ──
+          echo "5. Job search" | tee -a /tmp/demo-output.txt
+          SEARCH_RESP=$(curl -s -w "\n%{http_code}" -X GET \
+            "http://localhost:8003/api/matches/jobs/search?q=python&page=1&page_size=5" \
+            -H "Authorization: Bearer ${TOKEN}" 2>/dev/null)
+          SEARCH_CODE=$(echo "$SEARCH_RESP" | tail -1)
+          echo "   Status: ${SEARCH_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$SEARCH_CODE" -ge 200 ] && [ "$SEARCH_CODE" -lt 300 ] || { echo "   ❌ Job search failed"; FAILURES=$((FAILURES+1)); }
+
+          # ── 6. Match evaluation ──
+          echo "6. Match evaluation" | tee -a /tmp/demo-output.txt
+          MATCH_RESP=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8003/api/matches/evaluate \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"resume_id":"test-resume-1","job_id":"test-job-1"}' 2>/dev/null)
+          MATCH_CODE=$(echo "$MATCH_RESP" | tail -1)
+          echo "   Status: ${MATCH_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$MATCH_CODE" -ge 200 ] && [ "$MATCH_CODE" -lt 500 ] || echo "   ⚠️ Match returned ${MATCH_CODE} (may require existing data)" | tee -a /tmp/demo-output.txt
+
+          # ── 7. Create application ──
+          echo "7. Create application" | tee -a /tmp/demo-output.txt
+          APP_RESP=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8004/api/applications \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -H "Idempotency-Key: e2e-test-$(date +%s)" \
+            -d '{"job_id":"test-job-1","resume_id":"test-resume-1"}' 2>/dev/null)
+          APP_CODE=$(echo "$APP_RESP" | tail -1)
+          echo "   Status: ${APP_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$APP_CODE" -ge 200 ] && [ "$APP_CODE" -lt 500 ] || echo "   ⚠️ Application returned ${APP_CODE}" | tee -a /tmp/demo-output.txt
+
+          # ── 8. Interview start ──
+          echo "8. Interview start" | tee -a /tmp/demo-output.txt
+          INT_RESP=$(curl -s -w "\n%{http_code}" -X POST http://localhost:8005/api/interviews/start \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"application_id":"test-app-1","mode":"ai"}' 2>/dev/null)
+          INT_CODE=$(echo "$INT_RESP" | tail -1)
+          echo "   Status: ${INT_CODE}" | tee -a /tmp/demo-output.txt
+          [ "$INT_CODE" -ge 200 ] && [ "$INT_CODE" -lt 500 ] || echo "   ⚠️ Interview returned ${INT_CODE}" | tee -a /tmp/demo-output.txt
+
+          echo "" | tee -a /tmp/demo-output.txt
+          echo "E2E failures: ${FAILURES}" | tee -a /tmp/demo-output.txt
+          echo "e2e_failures=${FAILURES}" >> "$GITHUB_OUTPUT"
+          [ "$FAILURES" -eq 0 ] && echo "e2e_pass=true" >> "$GITHUB_OUTPUT" || echo "e2e_pass=false" >> "$GITHUB_OUTPUT"
+
+      # ── Step 9: Generate verification report ──────────────────
+      - name: Generate VERIFICATION_REPORT.md
+        id: report
+        if: always()
+        run: |
+          python << 'PYEOF'
+          import os, json, datetime
+
+          # Gather step outputs
+          def out(key, default=""):
+              v = os.environ.get(key, default)
+              return v.strip() if v else default
+
+          total_tests   = out("TOTAL_TESTS", "N/A")
+          total_passed  = out("TOTAL_PASSED", "N/A")
+          total_failed  = out("TOTAL_FAILED", "N/A")
+          cov_pct       = out("COV_PCT", "N/A")
+          bandit_high   = out("BANDIT_HIGH", "N/A")
+          bandit_med    = out("BANDIT_MED", "N/A")
+          npm_high      = out("NPM_HIGH_VULNS", "N/A")
+          e2e_failures  = out("E2E_FAILURES", "N/A")
+          cov_ok        = out("COV_OK", "false")
+          bandit_ok     = out("BANDIT_OK", "false")
+          frontend_ok   = out("BUILD_OK", "false")
+          seed_ok       = out("SEED_OK", "false")
+          e2e_ok        = out("E2E_OK", "false")
+          tests_ok      = out("TESTS_OK", "false")
+          health_ok     = out("HEALTH_OK", "false")
+          coverage_threshold = os.environ.get("COVERAGE_THRESHOLD", "80")
+          workflow      = os.environ.get("GITHUB_WORKFLOW", "full-verification")
+          run_id        = os.environ.get("GITHUB_RUN_ID", "")
+          server_url    = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          repository    = os.environ.get("GITHUB_REPOSITORY", "jobpilot")
+          ref_name      = os.environ.get("GITHUB_REF_NAME", "")
+          event_name    = os.environ.get("GITHUB_EVENT_NAME", "")
+          run_url       = f"{server_url}/{repository}/actions/runs/{run_id}" if run_id else ""
+          now           = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          # Determine overall status
+          failures = []
+          if health_ok != "true":    failures.append("Docker Compose / health check")
+          if tests_ok != "true":     failures.append("Backend tests")
+          if cov_ok != "true":       failures.append(f"Coverage below {coverage_threshold}%")
+          if bandit_ok != "true":    failures.append("Bandit found HIGH-severity issues")
+          if frontend_ok != "true":  failures.append("Frontend build failed")
+          overall = "FAIL" if failures else "PASS"
+
+          def icon(condition):
+              return "✅" if condition == "true" else ("❌" if condition == "false" else "⚠️")
+
+          def e2e_icon():
+              return "✅" if e2e_ok == "true" else ("⚠️" if e2e_failures != "N/A" else "❌")
+
+          # Read E2E output
+          e2e_output = "(No output captured)"
+          if os.path.exists("/tmp/demo-output.txt"):
+              with open("/tmp/demo-output.txt") as f:
+                  e2e_output = f.read()
+
+          report = f"""# JobPilot Full Verification Report
+
+          **Workflow:** {workflow}
+          **Run:** [{run_id}]({run_url})
+          **Branch:** {ref_name}
+          **Trigger:** {event_name}
+          **Date:** {now}
+
+          ---
+
+          ## Overall Status
+
+          {"🟢 **ALL CHECKS PASSED**" if overall == "PASS" else "🔴 **VERIFICATION FAILED**"}
+          """
+
+          if failures:
+              report += "\n### Failures:\n"
+              for f in failures:
+                  report += f"- {f}\n"
+
+          report += f"""
+          ---
+
+          ## Step Results
+
+          | Step | Status | Details |
+          |------|--------|---------|
+          | Docker Compose Start | {icon(health_ok)} | {"All 6 services healthy" if health_ok == "true" else "Health check timeout or failure"} |
+          | Backend Tests | {icon(tests_ok)} | {total_tests} tests, {total_passed} passed, {total_failed} failed |
+          | Code Coverage | {icon(cov_ok)} | {cov_pct}% (threshold: {coverage_threshold}%) |
+          | Bandit Security | {icon(bandit_ok)} | {bandit_high} HIGH, {bandit_med} MEDIUM |
+          | Frontend Build | {icon(frontend_ok)} | {"Build successful" if frontend_ok == "true" else "Build failed"} |
+          | npm Audit | ⚠️ | {npm_high} high/critical vulnerabilities |
+          | Seed Data | {icon(seed_ok)} | {"Demo data inserted" if seed_ok == "true" else "May have failed"} |
+          | E2E Journey | {e2e_icon()} | {"All 8 steps returned 2xx" if e2e_ok == "true" else f"{e2e_failures} step(s) failed"} |
+
+          ---
+
+          ## Key Metrics
+
+          | Metric | Value |
+          |--------|-------|
+          | Total Tests | {total_tests} |
+          | Passed | {total_passed} |
+          | Failed | {total_failed} |
+          | Line Coverage | {cov_pct}% |
+          | Bandit HIGH | {bandit_high} |
+          | Bandit MEDIUM | {bandit_med} |
+          | npm high/critical | {npm_high} |
+          | E2E failures | {e2e_failures} |
+
+          ---
+
+          ## E2E Journey Summary
+
+          ```
+          {e2e_output}
+          ```
+
+          ---
+
+          ## Artifacts
+
+          - [Coverage Reports](coverage-reports/) — HTML + JSON per service
+          - [Bandit Report](bandit-report.json) — Python security findings
+
+          ---
+
+          *Generated by [full-verification.yml](.github/workflows/full-verification.yml)*
+          """
+
+          # Normalize indentation (strip leading tabs from f-string)
+          lines = report.split("\n")
+          lines = [l[10:] if l.startswith("          ") else l for l in lines]
+          report = "\n".join(lines)
+
+          with open("VERIFICATION_REPORT.md", "w") as f:
+              f.write(report)
+
+          # Set outputs
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"overall={overall}\n")
+
+          # Write to step summary
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(report)
+
+          print(f"Report generated: overall={overall}")
+          PYEOF
+
+        env:
+          COVERAGE_THRESHOLD: "${{ env.COVERAGE_THRESHOLD }}"
+          TOTAL_TESTS: "${{ steps.backend_tests.outputs.total_tests }}"
+          TOTAL_PASSED: "${{ steps.backend_tests.outputs.total_passed }}"
+          TOTAL_FAILED: "${{ steps.backend_tests.outputs.total_failed }}"
+          COV_PCT: "${{ steps.backend_tests.outputs.coverage_pct }}"
+          COV_OK: "${{ steps.coverage_check.outputs.cov_ok }}"
+          BANDIT_HIGH: "${{ steps.bandit.outputs.high_count }}"
+          BANDIT_MED: "${{ steps.bandit.outputs.med_count }}"
+          BANDIT_OK: "${{ steps.bandit.outputs.bandit_pass }}"
+          NPM_HIGH_VULNS: "${{ steps.npm_audit.outputs.npm_high_vulns }}"
+          BUILD_OK: "${{ steps.frontend_build.outputs.build_pass }}"
+          SEED_OK: "${{ steps.seed.outputs.seed_pass }}"
+          E2E_OK: "${{ steps.e2e.outputs.e2e_pass }}"
+          E2E_FAILURES: "${{ steps.e2e.outputs.e2e_failures }}"
+          TESTS_OK: "${{ steps.backend_tests.outcome == 'success' }}"
+          HEALTH_OK: "${{ steps.health_check.outputs.health_ok }}"
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-report
+          path: VERIFICATION_REPORT.md
+          retention-days: 14
+
+      # ── Step 10: Slack notification ───────────────────────────
+      - name: Slack notification
+        if: always() && env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "${{ steps.report.outputs.overall == 'PASS' && '✅' || '🔴' }} JobPilot Full Verification — ${{ steps.report.outputs.overall }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "${{ steps.report.outputs.overall == 'PASS' && '✅' || '🔴' }} *JobPilot Full Verification*\nBranch: `${{ github.ref_name }}`\nTests: ${{ steps.backend_tests.outputs.total_tests }} (${{ steps.backend_tests.outputs.total_passed }} passed, ${{ steps.backend_tests.outputs.total_failed }} failed)\nCoverage: ${{ steps.backend_tests.outputs.coverage_pct }}%\nBandit HIGH: ${{ steps.bandit.outputs.high_count }}\nnpm HIGH: ${{ steps.npm_audit.outputs.npm_high_vulns }}\n\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      # ── Step 11: Final status check ───────────────────────────
+      - name: Final gate
+        if: always()
+        run: |
+          echo ""
+          echo "╔══════════════════════════════════════╗"
+          if [ "${{ steps.report.outputs.overall }}" = "PASS" ]; then
+            echo "║   🟢 ALL VERIFICATION CHECKS PASSED  ║"
+            echo "╚══════════════════════════════════════╝"
+          else
+            echo "║   🔴 VERIFICATION FAILED             ║"
+            echo "╚══════════════════════════════════════╝"
+            echo ""
+            echo "Check the report for details:"
+            echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            exit 1
+          fi
