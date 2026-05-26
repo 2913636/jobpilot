@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+data:
+  POSTGRES_HOST: {{ .Release.Name }}-postgres
+  POSTGRES_PORT: "5432"
+  REDIS_URL: "redis://{{ .Release.Name }}-redis:6379/0"
+  ELASTICSEARCH_URL: "http://{{ .Release.Name }}-elasticsearch:9200"
+  MILVUS_HOST: {{ .Release.Name }}-milvus
+  MILVUS_PORT: "19530"
+  NEO4J_URI: "bolt://{{ .Release.Name }}-neo4j:7687"
+  MINIO_ENDPOINT: "{{ .Release.Name }}-minio:9000"
+  LIVEKIT_URL: "http://{{ .Release.Name }}-livekit:7880"
+  TEMPORAL_HOST: {{ .Release.Name }}-temporal
+  NATS_URL: "nats://{{ .Release.Name }}-nats:4222"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-secrets
+type: Opaque
+stringData:
+  POSTGRES_USER: {{ .Values.postgres.auth.username | quote }}
+  POSTGRES_PASSWORD: {{ .Values.postgres.auth.password | quote }}
+  POSTGRES_DB: {{ .Values.postgres.auth.database | quote }}
+  MINIO_ACCESS_KEY: {{ .Values.minio.auth.rootUser | quote }}
+  MINIO_SECRET_KEY: {{ .Values.minio.auth.rootPassword | quote }}
+  LIVEKIT_API_KEY: {{ (split ":" .Values.livekit.keys)._0 | trim | quote }}
+  LIVEKIT_API_SECRET: {{ (split ":" .Values.livekit.keys)._1 | trim | quote }}
+  JWT_SECRET_KEY: {{ randAlphaNum 32 | quote }}

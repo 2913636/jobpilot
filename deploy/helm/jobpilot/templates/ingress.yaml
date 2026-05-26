@@ -1,0 +1,78 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className }}
+    {{- range $key, $val := .Values.ingress.annotations }}
+    {{ $key }}: {{ $val | quote }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+  - hosts:
+      - {{ .Values.global.domain }}
+    secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+  - host: {{ .Values.global.domain }}
+    http:
+      paths:
+      - path: /api/users
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-user-service
+            port:
+              number: 8000
+      - path: /api/resumes
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-resume-service
+            port:
+              number: 8000
+      - path: /api/matches
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-match-service
+            port:
+              number: 8000
+      - path: /api/applications
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-apply-service
+            port:
+              number: 8000
+      - path: /api/interviews
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-interview-service
+            port:
+              number: 8000
+      - path: /api/agents
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-agent-service
+            port:
+              number: 8000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-frontend
+            port:
+              number: 3000
+      - path: /ws
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}-livekit
+            port:
+              number: 7880
+{{- end }}

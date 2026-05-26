@@ -1,0 +1,182 @@
+{{/* ---- Infrastructure Services ---- */}}
+{{- define "jobpilot.stateful-service" -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .release }}-{{ .name }}
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+    app.kubernetes.io/part-of: jobpilot
+spec:
+  serviceName: {{ .release }}-{{ .name }}
+  replicas: {{ .replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .name }}
+    spec:
+      containers:
+      - name: {{ .name }}
+        image: {{ .image }}
+        {{- with .env }}
+        env:
+        {{- range $k, $v := . }}
+        - name: {{ $k }}
+          value: {{ $v | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .ports }}
+        ports:
+        {{- range . }}
+        - containerPort: {{ . }}
+        {{- end }}
+        {{- end }}
+        {{- with .resources }}
+        resources: {{ toYaml . | nindent 10 }}
+        {{- end }}
+        {{- if .persistence }}
+        volumeMounts:
+        - name: data
+          mountPath: {{ .persistence.mountPath | default "/data" }}
+        {{- end }}
+      {{- if .persistence }}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ $.release }}-{{ $.name }}-data
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .release }}-{{ .name }}
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .name }}
+  ports:
+  {{- range .ports }}
+  - port: {{ . }}
+    targetPort: {{ . }}
+  {{- end }}
+{{- end -}}
+
+{{/* ---- Microservice Deployment ---- */}}
+{{- define "jobpilot.microservice" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .release }}-{{ .name }}
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+    app.kubernetes.io/part-of: jobpilot
+spec:
+  replicas: {{ .replicas | default 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .name }}
+    spec:
+      containers:
+      - name: {{ .name }}
+        image: {{ .image }}
+        ports:
+        - containerPort: {{ .port }}
+        envFrom:
+        - configMapRef:
+            name: {{ .release }}-config
+        - secretRef:
+            name: {{ .release }}-secrets
+        env:
+        - name: SERVICE_NAME
+          value: {{ .name }}
+        - name: SERVICE_PORT
+          value: {{ .port | quote }}
+        resources: {{ toYaml .resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .port }}
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .port }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .release }}-{{ .name }}
+  labels:
+    app.kubernetes.io/name: {{ .name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .name }}
+  ports:
+  - port: {{ .port }}
+    targetPort: {{ .port }}
+{{- end -}}
+
+{{- $release := .Release.Name -}}
+
+{{/* Infrastructure */}}
+{{- if .Values.postgres.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "postgres" "image" .Values.postgres.image "replicas" .Values.postgres.replicaCount "env" .Values.postgres.auth "ports" (list 5432) "resources" .Values.postgres.resources "persistence" (dict "mountPath" "/var/lib/postgresql/data")) }}
+{{- end }}
+
+{{- if .Values.redis.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "redis" "image" .Values.redis.image "ports" (list 6379) "resources" .Values.redis.resources "persistence" (dict "mountPath" "/data")) }}
+{{- end }}
+
+{{- if .Values.elasticsearch.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "elasticsearch" "image" .Values.elasticsearch.image "replicas" .Values.elasticsearch.replicaCount "env" .Values.elasticsearch.env "ports" (list 9200) "resources" .Values.elasticsearch.resources "persistence" (dict "mountPath" "/usr/share/elasticsearch/data")) }}
+{{- end }}
+
+{{/* Milvus dependencies */}}
+{{- if .Values.milvus.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "etcd" "image" .Values.milvus.etcd.image "ports" (list 2379) "persistence" (dict "mountPath" "/etcd")) }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "milvus" "image" .Values.milvus.image "env" (dict "ETCD_ENDPOINTS" (printf "%s-etcd:2379" $release) "MINIO_ADDRESS" (printf "%s-minio:9000" $release)) "ports" (list 19530 9091) "resources" .Values.milvus.resources "persistence" (dict "mountPath" "/var/lib/milvus")) }}
+{{- end }}
+
+{{- if .Values.neo4j.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "neo4j" "image" .Values.neo4j.image "env" .Values.neo4j.env "ports" (list 7474 7687) "resources" .Values.neo4j.resources "persistence" (dict "mountPath" "/data")) }}
+{{- end }}
+
+{{- if .Values.minio.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "minio" "image" .Values.minio.image "env" (dict "MINIO_ROOT_USER" .Values.minio.auth.rootUser "MINIO_ROOT_PASSWORD" .Values.minio.auth.rootPassword) "ports" (list 9000 9001) "resources" .Values.minio.resources "persistence" (dict "mountPath" "/data")) }}
+{{- end }}
+
+{{/* Lightweight services */}}
+{{- if .Values.livekit.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "livekit" "image" .Values.livekit.image "ports" (list 7880) "resources" .Values.livekit.resources) }}
+{{- end }}
+
+{{- if .Values.temporal.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "temporal" "image" .Values.temporal.image "ports" (list 7233) "resources" .Values.temporal.resources) }}
+{{- end }}
+
+{{- if .Values.nats.enabled }}
+{{ include "jobpilot.stateful-service" (dict "release" $release "name" "nats" "image" .Values.nats.image "ports" (list 4222) "resources" .Values.nats.resources) }}
+{{- end }}
+
+{{/* Microservices */}}
+{{- range $svc, $cfg := .Values.services }}
+{{- if $cfg.enabled }}
+{{ include "jobpilot.microservice" (dict "release" $release "name" (printf "%s-service" $svc) "image" $cfg.image "replicas" $cfg.replicas "port" $cfg.port "resources" $cfg.resources) }}
+{{- end }}
+{{- end }}
+
+{{/* Frontend */}}
+{{- if .Values.frontend.enabled }}
+{{ include "jobpilot.microservice" (dict "release" $release "name" "frontend" "image" .Values.frontend.image "replicas" .Values.frontend.replicas "port" .Values.frontend.port "resources" .Values.frontend.resources) }}
+{{- end }}

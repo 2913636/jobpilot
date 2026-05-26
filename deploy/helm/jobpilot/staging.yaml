@@ -1,0 +1,61 @@
+# Staging Environment — mirrors production at smaller scale
+global:
+  environment: staging
+  domain: staging.jobpilot.example.com
+
+ingress:
+  tls:
+    enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+
+postgres:
+  persistence:
+    size: 20Gi
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 2Gi }
+
+elasticsearch:
+  persistence:
+    size: 30Gi
+
+milvus:
+  persistence:
+    size: 50Gi
+
+neo4j:
+  persistence:
+    size: 10Gi
+
+minio:
+  persistence:
+    size: 30Gi
+
+services:
+  user:
+    replicas: 2
+  resume:
+    replicas: 2
+  match:
+    replicas: 2
+  apply:
+    replicas: 1
+  interview:
+    replicas: 2
+  agent:
+    replicas: 1
+
+frontend:
+  replicas: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+
+# External Secrets
+externalSecrets:
+  enabled: true
+  provider: aws
+  awsRegion: us-east-1

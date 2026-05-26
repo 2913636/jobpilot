@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "JobPilot - 智能投递助手",
+  "version": "1.0.0",
+  "description": "一键填表、沟通同步、申请追踪",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "webRequest",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.zhipin.com/*",
+    "https://*.linkedin.com/*",
+    "https://*.lagou.com/*",
+    "https://*.liepin.com/*",
+    "https://*.51job.com/*",
+    "http://localhost:8004/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "JobPilot",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.zhipin.com/*",
+        "https://*.linkedin.com/*",
+        "https://*.lagou.com/*",
+        "https://*.liepin.com/*",
+        "https://*.51job.com/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

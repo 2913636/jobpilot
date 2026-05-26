@@ -1,0 +1,96 @@
+# Production Environment
+global:
+  environment: production
+  domain: jobpilot.example.com
+
+ingress:
+  tls:
+    enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+postgres:
+  persistence:
+    size: 100Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: 2000m, memory: 4Gi }
+
+redis:
+  persistence:
+    size: 20Gi
+
+elasticsearch:
+  persistence:
+    size: 100Gi
+  resources:
+    requests: { cpu: 1000m, memory: 4Gi }
+    limits: { cpu: 4000m, memory: 8Gi }
+
+milvus:
+  persistence:
+    size: 200Gi
+  resources:
+    requests: { cpu: 1000m, memory: 2Gi }
+    limits: { cpu: 4000m, memory: 8Gi }
+
+neo4j:
+  persistence:
+    size: 50Gi
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits: { cpu: 2000m, memory: 4Gi }
+
+minio:
+  persistence:
+    size: 200Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: 2000m, memory: 4Gi }
+
+services:
+  user:
+    replicas: 3
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+  resume:
+    replicas: 3
+    resources:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits: { cpu: 2000m, memory: 2Gi }
+  match:
+    replicas: 3
+    resources:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits: { cpu: 2000m, memory: 2Gi }
+  apply:
+    replicas: 2
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+  interview:
+    replicas: 3
+    resources:
+      requests: { cpu: 500m, memory: 2Gi }
+      limits: { cpu: 4000m, memory: 4Gi }
+  agent:
+    replicas: 2
+    resources:
+      requests: { cpu: 300m, memory: 512Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+
+frontend:
+  replicas: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+
+# External Secrets
+externalSecrets:
+  enabled: true
+  provider: aws
+  awsRegion: us-east-1

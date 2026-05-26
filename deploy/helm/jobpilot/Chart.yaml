@@ -1,0 +1,14 @@
+apiVersion: v2
+name: jobpilot
+description: JobPilot - AI-powered job matching and recruitment platform
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - job-matching
+  - recruitment
+  - ai
+  - microservices
+maintainers:
+  - name: JobPilot Team
+    email: dev@jobpilot.io

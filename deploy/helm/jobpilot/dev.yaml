@@ -1,0 +1,54 @@
+# Development Environment
+global:
+  environment: dev
+  domain: dev.jobpilot.example.com
+  imageTag: latest
+
+ingress:
+  tls:
+    enabled: false
+  annotations:
+    cert-manager.io/cluster-issuer: ""
+
+postgres:
+  persistence:
+    size: 5Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+
+elasticsearch:
+  persistence:
+    size: 10Gi
+
+milvus:
+  persistence:
+    size: 20Gi
+
+neo4j:
+  persistence:
+    size: 5Gi
+
+minio:
+  persistence:
+    size: 10Gi
+
+services:
+  user:
+    replicas: 1
+  resume:
+    replicas: 1
+  match:
+    replicas: 1
+  apply:
+    replicas: 1
+  interview:
+    replicas: 1
+  agent:
+    replicas: 1
+
+frontend:
+  replicas: 1
+
+autoscaling:
+  enabled: false

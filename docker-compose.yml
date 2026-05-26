@@ -1,0 +1,556 @@
+version: "3.8"
+
+x-common-backend: &common-backend
+  env_file:
+    - .env
+  networks:
+    - jobpilot-network
+  restart: unless-stopped
+
+services:
+  # ============================================================
+  # PostgreSQL 15
+  # ============================================================
+  postgres:
+    image: postgres:15
+    container_name: jp-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jobpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobpilot_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-jobpilot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jobpilot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # Redis 7
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: jp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # Elasticsearch 8.x (single node, no security)
+  # ============================================================
+  elasticsearch:
+    image: elasticsearch:8.15.0
+    container_name: jp-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      network.host: 0.0.0.0
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s http://localhost:9200/_cluster/health | grep -q -E 'green|yellow'",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # ============================================================
+  # etcd (required by Milvus)
+  # ============================================================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    container_name: jp-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd_data:/etcd
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # MinIO
+  # ============================================================
+  minio:
+    image: minio/minio:latest
+    container_name: jp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # Milvus Standalone
+  # ============================================================
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: jp-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    networks:
+      - jobpilot-network
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  # ============================================================
+  # Neo4j Community Edition (no auth)
+  # ============================================================
+  neo4j:
+    image: neo4j:5-community
+    container_name: jp-neo4j
+    environment:
+      NEO4J_AUTH: none
+      NEO4J_server_config_strict__validation_enabled: "false"
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # ============================================================
+  # LiveKit Server
+  # ============================================================
+  livekit:
+    image: livekit/livekit-server:v1.7.2
+    container_name: jp-livekit
+    command:
+      - --port=7880
+      - --node-ip=127.0.0.1
+      - --redis-host=redis
+      - --keys=devkey: devsecret
+    ports:
+      - "7880:7880"
+    networks:
+      - jobpilot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================
+  # Temporal (auto-setup, depends on PostgreSQL)
+  # ============================================================
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: jp-temporal
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-jobpilot}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-jobpilot_secret}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development.yaml
+    ports:
+      - "7233:7233"
+    volumes:
+      - temporal_data:/etc/temporal/config
+    networks:
+      - jobpilot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 cluster health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ============================================================
+  # NATS
+  # ============================================================
+  nats:
+    image: nats:2-alpine
+    container_name: jp-nats
+    command: "-js -m 8222"
+    ports:
+      - "4222:4222"
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # Traefik Reverse Proxy
+  # ============================================================
+  traefik:
+    image: traefik:v3.1
+    container_name: jp-traefik
+    command:
+      - --api.insecure=true
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - jobpilot-network
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # User Service
+  # ============================================================
+  user_service:
+    <<: *common-backend
+    build:
+      context: ./backend
+      dockerfile: services/user_service/Dockerfile
+      args:
+        SERVICE_NAME: user_service
+    container_name: jp-user-service
+    environment:
+      SERVICE_NAME: user_service
+      SERVICE_PORT: "8000"
+    ports:
+      - "8001:8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-service.rule=PathPrefix(`/api/users`)"
+      - "traefik.http.services.user-service.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.user-strip.stripprefix.prefixes=/api/users"
+      - "traefik.http.routers.user-service.middlewares=user-strip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================
+  # Resume Service
+  # ============================================================
+  resume_service:
+    <<: *common-backend
+    build:
+      context: ./backend
+      dockerfile: services/resume_service/Dockerfile
+      args:
+        SERVICE_NAME: resume_service
+    container_name: jp-resume-service
+    environment:
+      SERVICE_NAME: resume_service
+      SERVICE_PORT: "8000"
+    ports:
+      - "8002:8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.resume-service.rule=PathPrefix(`/api/resumes`)"
+      - "traefik.http.services.resume-service.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.resume-strip.stripprefix.prefixes=/api/resumes"
+      - "traefik.http.routers.resume-service.middlewares=resume-strip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================
+  # Match Service
+  # ============================================================
+  match_service:
+    <<: *common-backend
+    build:
+      context: ./backend
+      dockerfile: services/match_service/Dockerfile
+      args:
+        SERVICE_NAME: match_service
+    container_name: jp-match-service
+    environment:
+      SERVICE_NAME: match_service
+      SERVICE_PORT: "8000"
+    ports:
+      - "8003:8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.match-service.rule=PathPrefix(`/api/matches`)"
+      - "traefik.http.services.match-service.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.match-strip.stripprefix.prefixes=/api/matches"
+      - "traefik.http.routers.match-service.middlewares=match-strip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================
+  # Apply Service
+  # ============================================================
+  apply_service:
+    <<: *common-backend
+    build:
+      context: ./backend
+      dockerfile: services/apply_service/Dockerfile
+      args:
+        SERVICE_NAME: apply_service
+    container_name: jp-apply-service
+    environment:
+      SERVICE_NAME: apply_service
+      SERVICE_PORT: "8000"
+    ports:
+      - "8004:8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.apply-service.rule=PathPrefix(`/api/applications`)"
+      - "traefik.http.services.apply-service.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.apply-strip.stripprefix.prefixes=/api/applications"
+      - "traefik.http.routers.apply-service.middlewares=apply-strip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================
+  # Interview Service
+  # ============================================================
+  interview_service:
+    <<: *common-backend
+    build:
+      context: ./backend
+      dockerfile: services/interview_service/Dockerfile
+      args:
+        SERVICE_NAME: interview_service
+    container_name: jp-interview-service
+    environment:
+      SERVICE_NAME: interview_service
+      SERVICE_PORT: "8000"
+    ports:
+      - "8005:8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.interview-service.rule=PathPrefix(`/api/interviews`)"
+      - "traefik.http.services.interview-service.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.interview-strip.stripprefix.prefixes=/api/interviews"
+      - "traefik.http.routers.interview-service.middlewares=interview-strip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================
+  # Agent Service
+  # ============================================================
+  agent_service:
+    <<: *common-backend
+    build:
+      context: ./backend
+      dockerfile: services/agent_service/Dockerfile
+      args:
+        SERVICE_NAME: agent_service
+    container_name: jp-agent-service
+    environment:
+      SERVICE_NAME: agent_service
+      SERVICE_PORT: "8000"
+    ports:
+      - "8006:8000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.agent-service.rule=PathPrefix(`/api/agents`)"
+      - "traefik.http.services.agent-service.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.agent-strip.stripprefix.prefixes=/api/agents"
+      - "traefik.http.routers.agent-service.middlewares=agent-strip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================
+  # Frontend (Next.js)
+  # ============================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jp-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost/api
+      NEXT_PUBLIC_LIVEKIT_URL: http://localhost:7880
+    networks:
+      - jobpilot-network
+    depends_on:
+      - user-service
+      - resume-service
+      - match-service
+      - apply-service
+      - interview-service
+      - agent-service
+    restart: unless-stopped
+
+  # ============================================================
+  # Jaeger — Distributed Tracing
+  # ============================================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jp-jaeger
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - jobpilot-network
+    restart: unless-stopped
+
+# ============================================================
+# Networks
+# ============================================================
+networks:
+  jobpilot-network:
+    driver: bridge
+
+# ============================================================
+# Volumes
+# ============================================================
+volumes:
+  postgres_data:
+  redis_data:
+  es_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  neo4j_data:
+  neo4j_logs:
+  temporal_data:

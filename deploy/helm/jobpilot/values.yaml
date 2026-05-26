@@ -1,0 +1,209 @@
+# ============================================================
+# JobPilot Helm Chart - Values
+# ============================================================
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+  environment: production
+  domain: jobpilot.example.com
+
+# --- Ingress ---
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: jobpilot-tls
+
+# --- PostgreSQL ---
+postgres:
+  enabled: true
+  image: postgres:15
+  replicaCount: 1
+  auth:
+    username: jobpilot
+    password: jobpilot_secret
+    database: jobpilot
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 2Gi }
+
+# --- Redis ---
+redis:
+  enabled: true
+  image: redis:7-alpine
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+
+# --- Elasticsearch ---
+elasticsearch:
+  enabled: true
+  image: elasticsearch:8.15.0
+  replicaCount: 1
+  env:
+    discovery.type: single-node
+    xpack.security.enabled: "false"
+  persistence:
+    enabled: true
+    size: 30Gi
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits: { cpu: 2000m, memory: 4Gi }
+
+# --- Milvus ---
+milvus:
+  enabled: true
+  image: milvusdb/milvus:v2.4.0
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: 2000m, memory: 4Gi }
+
+# --- Neo4j ---
+neo4j:
+  enabled: true
+  image: neo4j:5-community
+  env:
+    NEO4J_AUTH: none
+  persistence:
+    enabled: true
+    size: 20Gi
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: 2000m, memory: 4Gi }
+
+# --- MinIO ---
+minio:
+  enabled: true
+  image: minio/minio:latest
+  auth:
+    rootUser: minioadmin
+    rootPassword: minioadmin
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 2Gi }
+
+# --- LiveKit ---
+livekit:
+  enabled: true
+  image: livekit/livekit-server:v1.7.2
+  keys: "devkey: devsecret"
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+# --- Temporal ---
+temporal:
+  enabled: true
+  image: temporalio/auto-setup:latest
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+# --- NATS ---
+nats:
+  enabled: true
+  image: nats:2-alpine
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# --- Backend Microservices ---
+services:
+  user:
+    enabled: true
+    replicas: 2
+    image: jobpilot/user-service:latest
+    port: 8000
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+  resume:
+    enabled: true
+    replicas: 2
+    image: jobpilot/resume-service:latest
+    port: 8000
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+  match:
+    enabled: true
+    replicas: 2
+    image: jobpilot/match-service:latest
+    port: 8000
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+  apply:
+    enabled: true
+    replicas: 1
+    image: jobpilot/apply-service:latest
+    port: 8000
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+  interview:
+    enabled: true
+    replicas: 2
+    image: jobpilot/interview-service:latest
+    port: 8000
+    resources:
+      requests: { cpu: 300m, memory: 1Gi }
+      limits: { cpu: 2000m, memory: 2Gi }
+  agent:
+    enabled: true
+    replicas: 1
+    image: jobpilot/agent-service:latest
+    port: 8000
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+
+# --- Frontend ---
+frontend:
+  enabled: true
+  replicas: 2
+  image: jobpilot/frontend:latest
+  port: 3000
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# --- Auto-scaling ---
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# --- Canary Deployment ---
+canary:
+  enabled: false
+  weight: 10
+
+# --- External Secrets ---
+externalSecrets:
+  enabled: false
+  provider: aws
+  awsRegion: us-east-1
+  awsAccountId: ""
+  vaultAddr: ""
