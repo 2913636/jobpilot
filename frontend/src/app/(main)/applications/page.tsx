@@ -107,8 +107,9 @@ export default function ApplicationsPage() {
       await api.patch(`/api/applications/${appId}`, { status: newStatus });
       message.success(`状态已更新为 ${statusLabels[newStatus] || newStatus}`);
       fetchApps();
-    } catch (e: any) {
-      message.error(e?.response?.data?.detail || "状态更新失败");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err?.response?.data?.detail || "状态更新失败");
     }
   };
 

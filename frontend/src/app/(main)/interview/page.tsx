@@ -15,9 +15,7 @@ import {
   Spin,
   Empty,
   message,
-  Divider,
   List,
-  Descriptions,
 } from "antd";
 import {
   VideoCameraOutlined,
@@ -234,8 +232,10 @@ export default function InterviewPage() {
               </Space>
             }
             style={{ minHeight: 400, background: "#1a1a2e", borderRadius: 12 }}
-            bodyStyle={{ padding: 0 }}
-            headStyle={{ color: "#fff", borderBottom: "1px solid #333" }}
+            styles={{
+              body: { padding: 0 },
+              header: { color: "#fff", borderBottom: "1px solid #333" },
+            }}
           >
             <div
               style={{

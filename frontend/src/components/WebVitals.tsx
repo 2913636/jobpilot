@@ -30,7 +30,7 @@ const reportWebVitals = (metric: Metric) => {
 
 export function WebVitalsReporter() {
   useEffect(() => {
-    let LCP: number, FCP: number, CLS: number, INP: number;
+    let LCP: number, FCP: number, CLS: number;
 
     try {
       new PerformanceObserver((list) => {
