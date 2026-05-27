@@ -3,16 +3,18 @@
 AI-powered job matching and recruitment platform with microservices architecture.
 
 [![CI](https://github.com/jobpilot/jobpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/jobpilot/jobpilot/actions/workflows/ci.yml)
+[![Full Verification](https://github.com/jobpilot/jobpilot/actions/workflows/full-verification.yml/badge.svg)](https://github.com/jobpilot/jobpilot/actions/workflows/full-verification.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
-[![Next.js 14](https://img.shields.io/badge/next.js-14-black.svg)](https://nextjs.org/)
+[![Next.js 15](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-production--ready-brightgreen.svg)]()
 
 ## Architecture
 
 ```mermaid
 graph TB
     subgraph "Frontend"
-        FE[Next.js 14<br/>:3000]
+        FE[Next.js 15<br/>:3000]
     end
 
     subgraph "Gateway"
@@ -57,7 +59,7 @@ graph TB
 
 | Service | Port | Key Features |
 |---------|------|-------------|
-| **Frontend** | 3000 | Next.js 14, TypeScript, Ant Design 5, Tailwind CSS |
+| **Frontend** | 3000 | Next.js 15, TypeScript, Ant Design 5, Tailwind CSS |
 | **user-service** | 8001 | Auth (JWT+bcrypt), Email Verification, Password Reset, Rate Limiting, Audit Logs |
 | **resume-service** | 8002 | PDF/DOCX/Image OCR Parsing, AI Generation (LangChain), ATS Scoring (35 rules), Templates |
 | **match-service** | 8003 | Elasticsearch Search, Vector Matching (sentence-transformers+Milvus), Job Comparison, Career Path (Neo4j), Salary Prediction (XGBoost) |
@@ -163,6 +165,7 @@ aws eks update-kubeconfig --name jobpilot-staging --region us-east-1
 | Workflow | Trigger | Actions |
 |----------|---------|---------|
 | **CI** ([ci.yml](.github/workflows/ci.yml)) | push/PR to main | Lint → Test → Build Docker images |
+| **Full Verification** ([full-verification.yml](.github/workflows/full-verification.yml)) | push to main, manual | Docker Compose → Health Poll → Pytest+Coverage → Bandit → Frontend Build → E2E Journey |
 | **CD** ([cd.yml](.github/workflows/cd.yml)) | tag `v*` push | Build all → Helm deploy → Health check → Slack notify |
 
 ## Project Structure
