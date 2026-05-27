@@ -210,6 +210,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7880/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   # ============================================================
@@ -513,12 +519,24 @@ services:
     networks:
       - jobpilot-network
     depends_on:
-      - user-service
-      - resume-service
-      - match-service
-      - apply-service
-      - interview-service
-      - agent-service
+      user-service:
+        condition: service_healthy
+      resume-service:
+        condition: service_healthy
+      match-service:
+        condition: service_healthy
+      apply-service:
+        condition: service_healthy
+      interview-service:
+        condition: service_healthy
+      agent-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   # ============================================================
@@ -536,6 +554,12 @@ services:
       COLLECTOR_OTLP_ENABLED: "true"
     networks:
       - jobpilot-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:16686/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
 # ============================================================

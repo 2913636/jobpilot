@@ -26,8 +26,6 @@ import {
   RobotOutlined,
   BarChartOutlined,
   HistoryOutlined,
-  ExperimentOutlined,
-  DeleteOutlined,
   EyeOutlined,
 } from "@ant-design/icons";
 import type { UploadFile } from "antd";

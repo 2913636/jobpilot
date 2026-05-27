@@ -24,7 +24,6 @@ import {
   PlayCircleOutlined,
   SoundOutlined,
   TrophyOutlined,
-  BookOutlined,
   CheckCircleOutlined,
 } from "@ant-design/icons";
 import api from "@/lib/api";

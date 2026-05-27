@@ -14,15 +14,12 @@ import {
   Row,
   Col,
   Timeline,
-  Popconfirm,
   Empty,
   Spin,
   message,
 } from "antd";
 import {
   PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
   DashboardOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";

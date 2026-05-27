@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 # ── 申请 ──────────────────────────────────────────────────────────
 
 class ApplicationCreate(BaseModel):
-    job_id: UUID
+    job_id: UUID | None = None
     resume_id: UUID | None = None
     company: str | None = Field(None, description="公司名")
     title: str | None = Field(None, description="职位名")
