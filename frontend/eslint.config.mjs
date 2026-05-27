@@ -1,9 +1,9 @@
-import { FlatCompat } from "eslint-flat-config-utils";
-
-const compat = new FlatCompat();
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
 
 export default [
-  ...compat.extends("next/core-web-vitals"),
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
   {
     rules: {
       "@typescript-eslint/no-unused-vars": "warn",
@@ -11,6 +11,6 @@ export default [
     },
   },
   {
-    ignores: [".next/**", "node_modules/**", "*.config.*"],
+    ignores: [".next/**", "node_modules/**", "*.config.*", "out/**"],
   },
 ];
