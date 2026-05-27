@@ -84,6 +84,17 @@ async def trigger_application(
     return await svc.trigger_application_workflow({**params, "user_id": user["sub"]})
 
 
+@app.post("/workflows/backup", tags=["Workflows"], summary="触发备份工作流")
+async def trigger_backup(
+    params: dict | None = None,
+    user: dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动触发数据库备份。Temporal Cron 会在每周日 03:00 UTC 自动执行。"""
+    svc = AgentService(db)
+    return await svc.trigger_backup_workflow(params)
+
+
 # ── 事件追踪 ────────────────────────────────────────────────────
 
 @app.get("/events", tags=["Events"], summary="查询事件")

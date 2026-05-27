@@ -103,6 +103,22 @@ class AgentService:
         except ImportError:
             return {"workflow_id": f"mock-{uuid.uuid4().hex[:8]}", "status": "mock"}
 
+    async def trigger_backup_workflow(self, params: dict | None = None) -> dict:
+        """触发定期备份工作流（或手动触发）。"""
+        try:
+            import temporalio.client
+            client = await temporalio.client.Client.connect(
+                f"{__import__('os').getenv('TEMPORAL_HOST', 'temporal')}:7233"
+            )
+            handle = await client.start_workflow(
+                "BackupWorkflow", params or {},
+                id=f"backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
+                task_queue="jobpilot-task-queue",
+            )
+            return {"workflow_id": handle.id, "status": "started"}
+        except ImportError:
+            return {"workflow_id": f"mock-{uuid.uuid4().hex[:8]}", "status": "mock"}
+
     # ── 模型再训练 ────────────────────────────────────────────
 
     async def check_retraining(self, user_id: uuid.UUID) -> dict | None:

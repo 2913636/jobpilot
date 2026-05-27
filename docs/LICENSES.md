@@ -58,19 +58,13 @@ Generated: 2026-05-27
 | scrapy-playwright | >=0.0.40 | Headless browser |
 | fakeredis[lua] | >=2.21.0 | Testing mock |
 | Pillow | >=10.0.0 | Image processing |
+| pdfplumber | >=0.11.0 | PDF text extraction |
 
-### AGPL License — ACTION REQUIRED
+### AGPL License — RESOLVED
 
 | Package | Version | Usage |
 |---------|---------|-------|
-| **PyMuPDF** | >=1.24.0 | PDF resume parsing |
-
-> **Warning**: PyMuPDF is licensed under AGPL v3.0. This is a strong copyleft license that may require the entire JobPilot application to be distributed under AGPL if PyMuPDF is bundled as part of the service. If JobPilot is deployed as a SaaS (not distributed), AGPL may not trigger its copyleft obligations. However, consult legal counsel to confirm compliance for your deployment model.
->
-> **Mitigation options**:
-> 1. Replace with `pdfplumber` (MIT) or `pikepdf` (MPL 2.0) if PDF text extraction is sufficient
-> 2. Run PyMuPDF as a separate microservice behind an API boundary (AGPL "aggregate" clause)
-> 3. Accept AGPL and release JobPilot under AGPL
+| ~~PyMuPDF~~ | ~~>=1.24.0~~ | ~~PDF resume parsing~~ → Replaced by pdfplumber (MIT) |
 
 ## Frontend (Node.js)
 
@@ -101,8 +95,6 @@ Generated: 2026-05-27
 
 ## Conclusion
 
-All dependencies are compatible with the MIT license used by JobPilot, with one exception:
+All dependencies are compatible with the MIT license used by JobPilot. No license conflicts detected.
 
-- **PyMuPDF (AGPL)**: Mitigation recommended. Replace with `pdfplumber` (MIT) for PDF text extraction, or isolate behind an API boundary.
-
-No other license conflicts detected. All MIT, Apache 2.0, and BSD dependencies are permissively licensed and compatible with commercial use.
+- **PyMuPDF (AGPL)**: Replaced with `pdfplumber` (MIT) in Round 4 polish. All MIT, Apache 2.0, and BSD dependencies are permissively licensed and compatible with commercial use.

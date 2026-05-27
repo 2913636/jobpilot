@@ -1,7 +1,7 @@
 """Resume parser — extracts text from PDF/DOCX/TXT and structures it.
 
-Core text extraction uses PyMuPDF and python-docx.  Entity extraction uses
-regex patterns for email, phone, and name.  LayoutLMv3 integration is an
+Core text extraction uses pdfplumber (MIT) and python-docx.  Entity extraction
+uses regex patterns for email, phone, and name.  LayoutLMv3 integration is an
 optional enhancement for document-image-based resumes (e.g. scanned PDFs).
 """
 
@@ -17,12 +17,11 @@ from .schemas import ResumeContent
 
 def extract_text_from_pdf(data: bytes) -> str:
     try:
-        import fitz  # PyMuPDF
+        import pdfplumber
     except ImportError:
-        raise ImportError("PyMuPDF (fitz) is required for PDF parsing")
-    doc = fitz.open(stream=data, filetype="pdf")
-    pages = [page.get_text("text") for page in doc]
-    doc.close()
+        raise ImportError("pdfplumber is required for PDF parsing")
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        pages = [page.extract_text() or "" for page in pdf.pages]
     return "\n".join(pages)
 
 
@@ -270,7 +269,7 @@ class ResumeParser:
         """Optional LayoutLMv3-based parsing for image-rich PDFs."""
         try:
             from transformers import AutoProcessor, AutoModelForTokenClassification
-            import fitz
+            import pdfplumber
         except ImportError:
             return None
 
@@ -281,11 +280,10 @@ class ResumeParser:
             model = AutoModelForTokenClassification.from_pretrained(
                 "microsoft/layoutlmv3-base"
             )
-            doc = fitz.open(stream=pdf_data, filetype="pdf")
-            page = doc[0]
-            image = page.get_pixmap(dpi=150)
-            # In production, run inference here
-            doc.close()
+            with pdfplumber.open(io.BytesIO(pdf_data)) as pdf:
+                page = pdf.pages[0]
+                image = page.to_image(resolution=150)
+            # In production, run inference on image here
             del model, processor  # free memory
         except Exception:
             return None
