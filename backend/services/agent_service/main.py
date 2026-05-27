@@ -29,14 +29,10 @@ app = FastAPI(
 ```bash
 # Trigger application workflow
 curl -X POST :8006/workflows/application -H 'Authorization: Bearer $TOKEN' \\
-    title="Agent Service",
-    description="""Temporal 工作流编排、用户行为追踪、模型再训练、系统健康监控。
-
-## Curl Examples
-```bash
-# Trigger application workflow
-curl -X POST :8006/workflows/application -H 'Authorization: Bearer $TOKEN' \\
   -H 'Content-Type: application/json' -d '{"job_id":"..."}'
+
+# Trigger daily scan
+curl -X POST :8006/workflows/daily-scan -H 'Authorization: Bearer $TOKEN'
 
 # Health probe
 curl -X POST :8006/monitoring/probe -H 'Authorization: Bearer $TOKEN'
@@ -49,6 +45,7 @@ curl -X POST :8006/monitoring/probe -H 'Authorization: Bearer $TOKEN'
 setup_metrics(app)
 setup_event_middleware(app)
 setup_cors(app)
+setup_exception_handlers(app)
 
 
 @app.on_event("startup")

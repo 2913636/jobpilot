@@ -274,7 +274,21 @@ class ResumeGenerator:
             certifications=profile.get("certifications", []),
         )
 
+        # Optional: enhance with LangChain if available
+        llm_content = await self._try_langchain_generate(jd_text, profile, title)
+        if llm_content:
+            content = self._merge(content, llm_content)
+
         return content, jd_keywords
+
+    @staticmethod
+    def _merge(base: ResumeContent, overlay: ResumeContent) -> ResumeContent:
+        for field in ResumeContent.model_fields:
+            overlay_val = getattr(overlay, field)
+            base_val = getattr(base, field)
+            if overlay_val and not base_val:
+                setattr(base, field, overlay_val)
+        return base
 
     def _build_summary(self, profile: dict[str, Any], jd_analysis: dict[str, Any]) -> str:
         name = profile.get("full_name", "The candidate")

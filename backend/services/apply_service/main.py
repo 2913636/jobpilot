@@ -54,6 +54,7 @@ curl -X PATCH :8004/{id} -H 'Authorization: Bearer $TOKEN' -H 'Content-Type: app
 
 
 setup_cors(app)
+setup_exception_handlers(app)
 
 
 @app.on_event("startup")
@@ -218,6 +219,7 @@ async def sync_chat(
 async def list_chats(
     application_id: uuid.UUID | None = Query(None),
     page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     user: dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[CommunicationResponse]:

@@ -44,6 +44,7 @@ curl -X POST :8005/{session_id}/answer -H 'Authorization: Bearer $TOKEN' \\
 
 
 setup_cors(app)
+setup_exception_handlers(app)
 
 
 @app.on_event("startup")

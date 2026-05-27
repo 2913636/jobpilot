@@ -43,7 +43,6 @@ from common.exceptions import setup_exception_handlers
 
 app = FastAPI(
     title="Match Service",
-    title="Match Service",
     description="""职位搜索、智能匹配、多维度对比、职业路径规划、薪资预测。
 
 ## Curl Examples
@@ -63,6 +62,7 @@ curl -X POST :8003/match/evaluate -H 'Content-Type: application/json' \\
 
 
 setup_cors(app)
+setup_exception_handlers(app)
 
 
 @app.on_event("startup")

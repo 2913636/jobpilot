@@ -65,6 +65,7 @@ curl -X POST :8002/score -H 'Authorization: Bearer $TOKEN' -H 'Content-Type: app
 
 
 setup_cors(app)
+setup_exception_handlers(app)
 
 
 @app.on_event("startup")
