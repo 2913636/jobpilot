@@ -175,7 +175,7 @@ export default function ResumesPage() {
       title: "ATS Score",
       dataIndex: "ats_score",
       key: "ats_score",
-      render: (v: number | null) =>
+      render: (v: number | null, r: ResumeItem) =>
         v != null ? (
           <Tooltip title={`${v}/100`}>
             <Progress
@@ -186,7 +186,7 @@ export default function ResumesPage() {
             />
           </Tooltip>
         ) : (
-          <Button size="small" onClick={() => handleScore("")}>
+          <Button size="small" onClick={() => handleScore(r.id)}>
             Score
           </Button>
         ),

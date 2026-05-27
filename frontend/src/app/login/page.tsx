@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Form, Input, Button, Card, Typography, message } from "antd";
 import { UserOutlined, LockOutlined } from "@ant-design/icons";
@@ -10,16 +10,21 @@ import api from "@/lib/api";
 export default function LoginPage() {
   const router = useRouter();
   const { setToken, setUser } = useAppStore();
+  const [loading, setLoading] = useState(false);
 
   const onFinish = async (values: { email: string; password: string }) => {
+    setLoading(true);
     try {
       const res = await api.post("/api/users/login", values);
       setToken(res.data.access_token);
       setUser(res.data.user);
       message.success("Login successful");
       router.push("/dashboard");
-    } catch {
-      message.error("Login failed");
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      message.error(detail || "Login failed");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -45,7 +50,7 @@ export default function LoginPage() {
             <Input.Password prefix={<LockOutlined />} placeholder="Password" size="large" />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" htmlType="submit" block size="large">
+            <Button type="primary" htmlType="submit" block size="large" loading={loading}>
               Login
             </Button>
           </Form.Item>

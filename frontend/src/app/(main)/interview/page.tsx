@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Typography,
   Card,
@@ -60,6 +60,7 @@ export default function InterviewPage() {
   const [caption, setCaption] = useState<string[]>(["点击开始面试..."]);
   const [reportOpen, setReportOpen] = useState(false);
   const [emotion, setEmotion] = useState({ smile: 0, eye: 0, confidence: 50 });
+  const wsRef = useRef<WebSocket | null>(null);
 
   const startInterview = async () => {
     setLoading(true);
@@ -112,18 +113,81 @@ export default function InterviewPage() {
     setCaption((prev) => [...prev.slice(-20), text]);
   };
 
-  // 模拟面部识别数据（实际使用 MediaPipe）
+  // 连接 WebSocket 获取实时表情分析
   useEffect(() => {
-    if (!active) return;
-    const interval = setInterval(() => {
-      setEmotion({
-        smile: Math.random() * 0.4 + 0.4,
-        eye: Math.random() * 0.3 + 0.6,
-        confidence: Math.random() * 20 + 65,
-      });
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [active]);
+    if (!active || !session) return;
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost";
+    const wsUrl = apiBase.replace(/^http/, "ws") + `/api/interviews/ws/${session.id}`;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+    const connectWs = () => {
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          // 发送模拟 landmarks（实际使用 MediaPipe）
+          const sendLandmarks = () => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                landmarks: Array.from({ length: 468 }, () => ({
+                  x: Math.random(), y: Math.random(), z: Math.random() * 0.01,
+                })),
+              }));
+            }
+          };
+          sendLandmarks();
+          fallbackInterval = setInterval(sendLandmarks, 2000);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "emotion_result" && msg.data) {
+              setEmotion({
+                smile: msg.data.smile_ratio ?? Math.random() * 0.4 + 0.4,
+                eye: msg.data.eye_contact ?? Math.random() * 0.3 + 0.6,
+                confidence: msg.data.confidence ?? Math.random() * 20 + 65,
+              });
+            }
+          } catch {
+            // ignore parse errors
+          }
+        };
+
+        ws.onerror = () => {
+          ws.close();
+        };
+      } catch {
+        // WebSocket unavailable, use fallback
+      }
+    };
+
+    connectWs();
+
+    // Fallback: 若 WebSocket 未连接成功，使用模拟数据
+    const fallbackTimer = setTimeout(() => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        fallbackInterval = setInterval(() => {
+          setEmotion({
+            smile: Math.random() * 0.4 + 0.4,
+            eye: Math.random() * 0.3 + 0.6,
+            confidence: Math.random() * 20 + 65,
+          });
+        }, 2000);
+      }
+    }, 3000);
+
+    return () => {
+      if (fallbackInterval) clearInterval(fallbackInterval);
+      clearTimeout(fallbackTimer);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [active, session]);
 
   const scoreColor = (s: number) => (s >= 80 ? "#52c41a" : s >= 60 ? "#faad14" : "#ff4d4f");
 

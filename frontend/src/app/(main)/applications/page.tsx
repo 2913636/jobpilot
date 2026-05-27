@@ -91,7 +91,6 @@ export default function ApplicationsPage() {
     if (!newApp.company && !newApp.title) return;
     try {
       await api.post("/api/applications", {
-        job_id: "00000000-0000-0000-0000-000000000001", // placeholder
         company: newApp.company,
         title: newApp.title,
         notes: newApp.notes,
