@@ -131,6 +131,40 @@ async def search_jobs(
 
 # ── 匹配评估 ────────────────────────────────────────────────────
 
+@app.get("/jobs/{job_id}", response_model=JobResponse, tags=["Search"],
+         summary="Get job details")
+async def get_job_detail(
+    job_id: uuid.UUID,
+    user: dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobResponse:
+    svc = MatchService(db)
+    job = await svc.get_job(job_id)
+    if not job or not job.is_active:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JobResponse.model_validate(job)
+
+
+@app.get("/internal/jobs/{job_id}", include_in_schema=False)
+async def get_internal_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    svc = MatchService(db)
+    job = await svc.get_job(job_id)
+    if not job or not job.is_active:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "id": str(job.id),
+        "title": job.title,
+        "company": job.company,
+        "description": job.description,
+        "skills": job.skills or [],
+        "experience_level": job.experience_level,
+        "source": job.source,
+    }
+
+
 @app.post("/match/evaluate", response_model=MatchEvaluateResponse, tags=["Match"],
           summary="评估简历-职位匹配度")
 async def evaluate_match(

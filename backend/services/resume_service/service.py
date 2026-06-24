@@ -261,24 +261,33 @@ class ABTestService:
 # ── Helper for fetching JD text (stub for match-service integration) ──
 
 async def fetch_jd_text(job_id: uuid.UUID) -> str:
-    """Fetch job description text from match-service.
-
-    In production this calls POST http://match-service:8000/internal/jobs/{job_id}
-    or publishes a NATS request.  Stub returns placeholder.
-    """
-    # TODO: Replace with actual HTTP/NATS call to match-service
+    """Fetch job description text from match-service."""
+    urls = [
+        f"http://match-service:8000/internal/jobs/{job_id}",
+        f"http://localhost:8003/internal/jobs/{job_id}",
+    ]
     try:
         import httpx
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"http://match-service:8000/internal/jobs/{job_id}",
-                timeout=5.0,
-            )
-            if resp.status_code == 200:
-                return resp.json().get("description", "")
+            for url in urls:
+                try:
+                    resp = await client.get(url, timeout=5.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        description = data.get("description", "")
+                        skills = ", ".join(data.get("skills") or [])
+                        return "\n".join(
+                            part for part in [
+                                f"{data.get('title', 'Job')} at {data.get('company', 'Company')}",
+                                description,
+                                f"Required skills: {skills}" if skills else "",
+                            ] if part
+                        )
+                except httpx.HTTPError:
+                    continue
     except Exception:
         pass
-    return f"Job description for job_id={job_id} (placeholder — connect to match-service)"
+    return f"Target job {job_id}. Match-service is unavailable; use the user's profile skills to tailor the resume."
 
 
 async def fetch_user_profile(profile_id: uuid.UUID) -> dict[str, Any]:
