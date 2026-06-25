@@ -154,6 +154,18 @@ async def get_profile(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.get("/internal/profiles/{profile_id}", response_model=ProfileResponse, include_in_schema=False)
+async def get_internal_profile(
+    profile_id: _uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ProfileResponse:
+    svc = ProfileService(db)
+    try:
+        return await svc.get_profile(profile_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.put("/profile", response_model=ProfileResponse, tags=["Profile"],
          summary="Update profile")
 async def update_profile(

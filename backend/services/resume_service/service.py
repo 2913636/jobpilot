@@ -295,15 +295,20 @@ async def fetch_user_profile(profile_id: uuid.UUID) -> dict[str, Any]:
 
     In production this calls GET http://user-service:8000/internal/profiles/{profile_id}.
     """
+    urls = [
+        f"http://user-service:8000/internal/profiles/{profile_id}",
+        f"http://localhost:8001/internal/profiles/{profile_id}",
+    ]
     try:
         import httpx
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"http://user-service:8000/internal/profiles/{profile_id}",
-                timeout=5.0,
-            )
-            if resp.status_code == 200:
-                return resp.json()
+            for url in urls:
+                try:
+                    resp = await client.get(url, timeout=5.0)
+                    if resp.status_code == 200:
+                        return resp.json()
+                except httpx.HTTPError:
+                    continue
     except Exception:
         pass
     return {
