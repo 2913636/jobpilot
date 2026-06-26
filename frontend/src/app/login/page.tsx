@@ -15,7 +15,7 @@ export default function LoginPage() {
   const onFinish = async (values: { email: string; password: string }) => {
     setLoading(true);
     try {
-      const res = await api.post("/api/users/login", values);
+      const res = await api.post("/api/users/auth/login", values);
       setToken(res.data.access_token);
       setUser(res.data.user);
       message.success("Login successful");

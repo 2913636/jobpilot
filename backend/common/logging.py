@@ -84,10 +84,12 @@ def setup_logging(service_name: str = "unknown") -> None:
     })
 
 
-class TraceMiddleware:
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class TraceMiddleware(BaseHTTPMiddleware):
     """FastAPI 中间件：自动生成 trace_id，注入请求上下文。"""
 
-    async def __call__(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next) -> Response:
         trace_id = request.headers.get("X-Trace-Id") or request.headers.get("traceparent", "")
         if trace_id and "-" in trace_id:
             trace_id = trace_id.split("-")[1][:16]  # W3C traceparent 格式

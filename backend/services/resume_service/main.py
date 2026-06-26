@@ -79,12 +79,13 @@ async def health():
     return {"status": "ok", "service": "resume-service"}
 
 
-@app.get("/", tags=["System"], include_in_schema=False)
-async def root():
-    return {"service": "resume-service", "version": "1.0.0"}
-
-
 # ── List Resumes ──────────────────────────────────────────────────
+
+@app.get("/")
+async def root_list(user=Depends(get_current_user), db=Depends(get_db)):
+    svc = ResumeService(db)
+    resumes = await svc.list_by_user(uuid.UUID(user["sub"]))
+    return [ResumeListItem.model_validate(r) for r in resumes]
 
 @app.get(
     "",

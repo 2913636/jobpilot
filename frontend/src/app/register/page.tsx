@@ -13,7 +13,7 @@ export default function RegisterPage() {
   const onFinish = async (values: { email: string; password: string; full_name: string }) => {
     setLoading(true);
     try {
-      await api.post("/api/users/register", values);
+      await api.post("/api/users/auth/register", values);
       message.success("Registration successful");
       router.push("/login");
     } catch (err: unknown) {
