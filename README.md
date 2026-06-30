@@ -6,7 +6,6 @@ AI-powered job matching and recruitment platform with microservices architecture
 [![Full Verification](https://github.com/jobpilot/jobpilot/actions/workflows/full-verification.yml/badge.svg)](https://github.com/jobpilot/jobpilot/actions/workflows/full-verification.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Next.js 15](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-production--ready-brightgreen.svg)]()
 
 ## Architecture
