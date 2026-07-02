@@ -216,3 +216,6 @@ See [.env.example](.env.example) for the complete list. Key variables:
 | `ANTHROPIC_API_KEY` | Claude API key (optional, for LLM features) |
 | `DEEPGRAM_API_KEY` | Deepgram API key (optional, for speech transcription) |
 | `SMTP_ENABLED` | Enable email sending (default: false, uses mock SMTP) |
+
+---
+> GitHub: [2913636/jobpilot](https://github.com/2913636/jobpilot)
